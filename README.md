@@ -82,7 +82,7 @@ access should be addressed to the corresponding author.
 
 ## Licence
 
-To be added before the code is published.
+MIT. See `LICENSE`.
 
 ## Contact
 
