@@ -1,0 +1,1605 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auditory BCI &amp; Ne-utsuri — Raspberry Pi</title>
+<style>
+  :root { --bg:#15171c; --panel:#1e2128; --line:#2c313b; --fg:#e6e8ec; --muted:#8b93a3;
+          --accent:#3a7afe; --green:#2faa55; --red:#d24b4b; --amber:#d9a441; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:20px; background:var(--bg); color:var(--fg);
+         font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif; }
+  h1 { font-size:20px; margin:0 0 16px; }
+  h2 { font-size:14px; color:var(--muted); margin:0 0 10px; font-weight:600; }
+  .wrap { max-width:1100px; margin:0 auto; display:grid; gap:16px;
+          grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .panel.wide { grid-column:1/-1; }
+  button { border:none; border-radius:8px; padding:12px 14px; font-size:15px;
+           background:#2b3140; color:var(--fg); cursor:pointer; font-family:inherit; }
+  button:hover { background:#353c4d; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button.primary { background:var(--accent); color:#fff; }
+  button.go { background:var(--green); color:#fff; }
+  button.stop { background:var(--red); color:#fff; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; }
+  .row > button { flex:1; min-width:96px; }
+  .lrc button.on { outline:2px solid var(--accent); background:#2d4a86; }
+  .cnt { display:block; margin-top:4px; font-size:20px; font-weight:600; color:var(--muted); }
+  .lrc button.on .cnt { color:#fff; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td { padding:5px 4px; border-bottom:1px solid var(--line); }
+  td.k { color:var(--muted); width:46%; }
+  .imp-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .imp-cell { background:#242832; border-radius:6px; padding:8px; text-align:center;
+              font-size:13px; cursor:pointer; border:1px solid transparent; }
+  .imp-cell:hover { background:#2b3140; }
+  /* 色は電極ケーブル色をJS側からインラインで入れる */
+  .imp-cell .ch { font-size:14px; font-weight:700; letter-spacing:.02em; }
+  .imp-cell .v { font-size:16px; margin-top:2px; }
+  .imp-cell .rms { color:var(--muted); font-size:11px; margin-top:2px; }
+  .imp-cell.active { outline:2px solid var(--amber); }
+  .imp-cell.railed { border-color:var(--red); }
+  #status { font-size:15px; min-height:22px; }
+  .vol { margin-top:14px; border-top:1px solid var(--line); padding-top:12px; }
+  .vol label { display:block; font-size:12px; color:var(--muted); margin:8px 0 4px; }
+  .vol label span { color:var(--fg); }
+  .vrow { display:flex; align-items:center; gap:8px; }
+  .vrow button { flex:0 0 40px; padding:6px 0; font-size:16px; }
+  .vrow input[type=range] { flex:1; accent-color:var(--accent); }
+  .vrow input[type=range]:disabled { accent-color:#4a5262; }
+  .setnum { display:flex; align-items:center; gap:8px; font-size:12px;
+            color:var(--muted); margin-bottom:12px; flex-wrap:wrap; }
+  .setnum select { background:#242832; border:1px solid var(--line); border-radius:6px;
+                   color:var(--fg); padding:6px 9px; font-size:15px; font-family:inherit; }
+  .hint { font-size:11.5px; color:var(--muted); line-height:1.55; margin-top:6px; }
+  .hint.alert { color:var(--amber); }
+  .warn { margin-top:12px; padding:10px 12px; border-radius:8px; font-size:13px;
+          line-height:1.6; background:#3a2f14; border:1px solid var(--amber);
+          color:#f0d79a; }
+  .warn b { color:var(--amber); }
+  .bar { height:8px; background:#242832; border-radius:4px; overflow:hidden; margin-top:8px; }
+  .bar > div { height:100%; background:var(--accent); width:0%; transition:width .2s; }
+  canvas { width:100%; height:420px; display:block; background:#12141a; border-radius:8px; }
+  #eeg-wrap { position:relative; }
+  #eeg-wrap.paused canvas { opacity:.15; filter:grayscale(1); }
+  #eeg-pause { display:none; position:absolute; inset:0; flex-direction:column;
+               align-items:center; justify-content:center; gap:10px; text-align:center; padding:16px; }
+  #eeg-wrap.paused #eeg-pause { display:flex; }
+  #eeg-pause .badge { background:var(--amber); color:#1b1500; font-weight:700; font-size:17px;
+                      padding:10px 18px; border-radius:999px; }
+  #eeg-pause .sub { color:var(--muted); font-size:13px; line-height:1.6; }
+  #eeg-state { font-weight:600; }
+  #eeg-state.paused { color:var(--amber); }
+  .muted { color:var(--muted); font-weight:400; }
+  .table-scroll { overflow-x:auto; max-height:340px; overflow-y:auto; }
+  table.files { font-size:13px; }
+  table.files th { text-align:left; color:var(--muted); font-weight:600; padding:6px 8px;
+                   border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel); }
+  table.files td { padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  table.files td.name { font-family:ui-monospace,monospace; white-space:nowrap; }
+  table.files tr.sel td { background:#22304a; }
+  table.files button { padding:4px 10px; font-size:12px; }
+  table.files .empty { color:var(--muted); text-align:center; padding:18px; }
+  table.files tr.active td { background:#1d3a28; }
+  table.files td.note { white-space:normal; color:var(--muted); }
+  code { font-family:ui-monospace,monospace; background:#242832; padding:1px 5px; border-radius:4px; }
+  .upload { margin-top:14px; border-top:1px solid var(--line); padding-top:12px;
+            display:flex; flex-direction:column; gap:10px; }
+  .upload .urow { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
+  .upload label { display:flex; flex-direction:column; gap:4px;
+                  font-size:12px; color:var(--muted); }
+  .upload input[type=text], .upload input:not([type]) {
+      background:#242832; border:1px solid var(--line); border-radius:6px;
+      color:var(--fg); padding:7px 9px; font-size:14px; font-family:inherit; }
+  .upload input[type=file] { color:var(--fg); font-size:12px; }
+  .mlabel { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
+  .mlabel input { background:#242832; border:1px solid var(--line); border-radius:6px;
+                  color:var(--fg); padding:7px 9px; font-size:15px; width:130px;
+                  font-family:inherit; }
+  #montage-wrap { display:flex; gap:20px; flex-wrap:wrap; align-items:flex-start; margin-top:14px; }
+  #montage { flex:1 1 460px; min-width:320px; }
+  #montage svg { width:100%; height:auto; display:block; }
+  #montage-table { flex:0 1 320px; align-self:flex-start; }
+  #montage-table td.sw { width:22px; }
+  #montage-table span.chip { display:inline-block; width:13px; height:13px; border-radius:50%;
+                             border:1px solid var(--line); box-sizing:border-box; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+
+  /* --- 平均ERP --- */
+  .erp-ctl { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; margin-bottom:12px; }
+  .erp-ctl select { background:#242832; border:1px solid var(--line); border-radius:6px;
+                    color:var(--fg); padding:6px 9px; font-size:14px; font-family:inherit;
+                    max-width:280px; }
+  .erp-ctl button { padding:8px 14px; font-size:14px; }
+  .erp-chk { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted);
+             padding-bottom:8px; }
+  #erp-canvas { height:360px; }
+  #erp-msg:empty { display:none; }
+  #erp-legend .tgt { color:var(--fg); font-weight:700; }
+  .dot.ok { background:var(--green); } .dot.ng { background:var(--red); }
+  .dot.wait { background:var(--amber); }
+
+  /* --- Ne-utsuri モード --- */
+  .panel.mode { border-color:#3d4a63; }
+  .modehead { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:0 0 14px; }
+  .modehead h2 { margin:0; color:var(--fg); font-size:16px; }
+  .modehead .sw { margin-left:auto; display:flex; gap:8px; }
+  .modehead .sw button { padding:8px 16px; font-size:14px; }
+  .modehead .sw button.on { background:var(--green); color:#fff; }
+  #neu-body { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); }
+  #neu-body.off { opacity:.42; pointer-events:none; }
+  .neu-col > h2 { margin-bottom:8px; }
+  .prio-val { font-size:34px; font-weight:700; line-height:1.1; }
+  .prio-val small { font-size:14px; color:var(--muted); font-weight:400; }
+  .prio input[type=range] { width:100%; accent-color:var(--accent); margin:6px 0 2px; }
+  .split { display:flex; height:26px; border-radius:6px; overflow:hidden; background:#242832;
+           font-size:12px; font-weight:600; }
+  .split > div { display:flex; align-items:center; justify-content:center; white-space:nowrap;
+                 overflow:hidden; transition:width .15s; }
+  .split .eeg { background:var(--accent); color:#fff; }
+  .split .sen { background:#8a4fbf; color:#fff; }
+  .ends { display:flex; justify-content:space-between; font-size:11.5px; color:var(--muted);
+          margin-top:5px; }
+  .meter { height:14px; background:#242832; border-radius:7px; margin-top:6px; position:relative;
+           overflow:hidden; }
+  .meter > .fill { height:100%; width:0%; background:var(--accent); transition:width .12s; }
+  .meter > .mark { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--amber); }
+  .neu-rec { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .neu-rec button { flex:1; min-width:120px; }
+  .rec-on { color:var(--red); font-weight:700; }
+  #neu-trace { height:170px; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--muted);
+            margin-top:6px; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; }
+</style>
+</head>
+<body>
+<h1>Auditory BCI &amp; Ne-utsuri — <span id="h1-device">Raspberry Pi</span></h1>
+<div class="wrap">
+
+  <div class="panel wide">
+    <h2>被験者</h2>
+    <div class="row" style="align-items:flex-end">
+      <label class="mlabel" style="flex:2;min-width:180px">選択中の被験者
+        <select id="subject-select" style="width:100%" onchange="onSubjectSelect(this.value)"></select>
+      </label>
+      <label class="mlabel" style="flex:1;min-width:150px">新しい被験者を追加
+        <input type="text" id="subject-new" placeholder="例: sub01"
+               onkeydown="if(event.key==='Enter')addSubject()">
+      </label>
+      <button class="primary" onclick="addSubject()">追加して選択</button>
+    </div>
+    <p class="hint">
+      記録データ・予測モデル・音量設定・電極配置の計測値はすべて選択中の被験者に紐づきます
+      （<code>data/&lt;被験者&gt;/</code> に保存、<code>models/&lt;被験者&gt;/</code> のモデルで予測、
+      刺激音量・デバイス音量と頭部計測値は被験者ごとに覚えます）。
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>EEG アンプ</h2>
+    <label class="mlabel">機種
+      <select id="device-select" style="width:100%" onchange="selectDevice(this.value)"></select>
+    </label>
+    <div class="row" id="port-row" style="margin-top:10px;align-items:flex-end;display:none">
+      <label class="mlabel" style="flex:1">COM ポート（空欄なら自動で探索）
+        <input type="text" id="device-port" placeholder="例: 4"
+               onkeydown="if(event.key==='Enter')connectDevice()">
+      </label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="btn-connect" onclick="connectDevice()">接続</button>
+      <button id="btn-disconnect" onclick="post('/api/disconnect').then(loadDevices)">切断</button>
+    </div>
+    <p class="hint" id="device-hint"></p>
+  </div>
+
+  <div class="panel">
+    <h2>音の確認 / ターゲット選択</h2>
+    <div class="row lrc">
+      <button id="t1" onclick="play('1')">Left<span class="cnt" id="c1">—</span></button>
+      <button id="t2" onclick="play('2')">Center<span class="cnt" id="c2">—</span></button>
+      <button id="t3" onclick="play('3')">Right<span class="cnt" id="c3">—</span></button>
+    </div>
+    <p style="color:var(--muted);font-size:12px;margin:10px 0 0">
+      押した音がそのままターゲットになります。数字は保存済みの記録本数（合計 <span id="c-total">—</span> 本）。
+    </p>
+
+    <div class="vol">
+      <label>刺激音量 <span id="v-stim">—</span></label>
+      <div class="vrow">
+        <button onclick="bumpVol('stim',-5)">−</button>
+        <input type="range" id="sl-stim" min="0" max="100" step="1"
+               oninput="document.getElementById('v-stim').textContent=this.value+'%'"
+               onchange="setVol('stim', this.value)">
+        <button onclick="bumpVol('stim',5)">＋</button>
+      </div>
+      <label>デバイス音量 (ALSA) <span id="v-dev">—</span></label>
+      <div class="vrow">
+        <button id="dev-minus" onclick="bumpVol('device',-5)">−</button>
+        <input type="range" id="sl-dev" min="0" max="100" step="1"
+               oninput="document.getElementById('v-dev').textContent=this.value+'%'"
+               onchange="setVol('device', this.value)">
+        <button id="dev-plus" onclick="bumpVol('device',5)">＋</button>
+      </div>
+      <div id="dev-hint" class="hint"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>計測</h2>
+    <label class="setnum">刺激セット数
+      <select id="setnum" onchange="onSetNum()">
+        <option>1</option><option>2</option><option>3</option><option>4</option>
+        <option>5</option><option>6</option><option>7</option><option>8</option>
+        <option>9</option><option selected>10</option>
+      </select>
+      <span id="setnum-info" class="muted"></span>
+    </label>
+    <div class="row">
+      <button class="go" id="btn-record" onclick="start('record')">レコーディング<br><small>予測なし</small></button>
+      <button class="primary" id="btn-predict" onclick="start('predict')">レコーディング<br><small>予測あり</small></button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="stop" id="btn-abort" onclick="post('/api/abort')">中止</button>
+    </div>
+    <div id="audio-warn" class="warn" style="display:none"></div>
+    <div id="status" style="margin-top:12px">—</div>
+    <div class="bar"><div id="prog"></div></div>
+  </div>
+
+  <div class="panel">
+    <h2>状態</h2>
+    <table>
+      <tr><td class="k">EEG アンプ</td><td id="s-conn">—</td></tr>
+      <tr><td class="k">サンプリングレート</td><td id="s-rate">—</td></tr>
+      <tr><td class="k">被験者</td><td id="s-subject">—</td></tr>
+      <tr><td class="k">オーディオ出力</td><td id="s-audio">—</td></tr>
+      <tr><td class="k">ESP32 (Ne-utsuri)</td><td id="s-esp">—</td></tr>
+      <tr><td class="k">ターゲット</td><td id="s-target">—</td></tr>
+      <tr><td class="k">予測結果</td><td id="s-pred">—</td></tr>
+      <tr><td class="k">最新ファイル</td><td id="s-file">—</td></tr>
+      <tr><td class="k">Pi の時刻</td><td id="s-clock">—</td></tr>
+    </table>
+    <div class="row" style="margin-top:12px">
+      <button onclick="post('/api/reconnect')">USB機器を再検出</button>
+    </div>
+    <p class="hint">オーディオI/FとEEGアンプを両方とも探し直します。挿し直したあとはこれで復帰します。</p>
+  </div>
+
+  <div class="panel">
+    <h2>チャンネル状態（インピーダンス kΩ / 生値 RMS µV）</h2>
+    <div class="imp-grid" id="imp"></div>
+    <div class="row" style="margin-top:12px">
+      <button onclick="post('/api/impedance?ch=all')">全チャンネル計測</button>
+    </div>
+    <div id="imp-error" class="warn" style="display:none"></div>
+    <p style="color:var(--muted);font-size:12px;margin:10px 0 0">
+      赤枠は railing（電極が外れている / 飽和）。チャンネル名を押すと単独で計測します
+      （Polymate は仕様上つねに全チャンネル同時に測ります）。
+    </p>
+  </div>
+
+  <div class="panel wide">
+    <h2>平均ERP <span id="erp-sub" class="muted"></span></h2>
+    <div class="erp-ctl">
+      <label class="mlabel">記録
+        <select id="erp-file" onchange="loadErp()"></select>
+      </label>
+      <label class="erp-chk">
+        <input type="checkbox" id="erp-shared" checked onchange="drawErp()">縦軸を8チャンネルで揃える
+      </label>
+      <button onclick="loadErp()">再計算</button>
+    </div>
+    <canvas id="erp-canvas"></canvas>
+    <div class="legend" id="erp-legend"></div>
+    <div id="erp-msg" class="hint"></div>
+    <p class="hint">
+      刺激オンセットを 0 ms とした条件別の加算平均（帯は平均の標準誤差）。ベースラインは刺激前 100 ms。
+      ターゲットの音は太い実線です。記録が終わると最新の1本に自動で更新します。
+    </p>
+  </div>
+
+  <div class="panel wide">
+    <h2>リアルタイム EEG (0.5–40 Hz, 直近6秒) <span id="eeg-state"></span></h2>
+    <div id="eeg-wrap">
+      <canvas id="eeg"></canvas>
+      <div id="eeg-pause">
+        <div class="badge">⏸ 記録中は表示を停止しています</div>
+        <div class="sub">取得処理を記録に集中させるため意図的に止めています（異常ではありません）。<br>
+          サンプリングレートの更新は継続しています。記録が終わると自動で再開します。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel wide mode" id="neu-panel">
+    <div class="modehead">
+      <h2>Ne-utsuri モード（ESP32ピエゾ + EEG 同時記録）</h2>
+      <span id="neu-mode-state" class="muted" style="font-size:12px">—</span>
+      <div class="sw">
+        <button id="neu-on" onclick="neuMode(1)">モードON</button>
+        <button id="neu-off" onclick="neuMode(0)">OFF</button>
+      </div>
+    </div>
+    <p class="hint" style="margin:-6px 0 12px">
+      聴覚BCIとは独立したモードです。刺激は鳴らさず、ピエゾの押下と EEG を1本のCSVに並べて記録し、
+      「脳波の予測」と「実センサー」のどちらでスペースキーを出すかを下の優先度で混ぜます。
+      聴覚BCIの試行中は自動で待機します。
+    </p>
+    <div id="neu-unsupported" class="warn" style="display:none"></div>
+
+    <div id="neu-body">
+
+      <div class="neu-col">
+        <h2>ESP32 接続</h2>
+        <table>
+          <tr><td class="k">シリアル</td><td id="neu-esp">—</td></tr>
+          <tr><td class="k">BLEキーボード</td><td id="neu-ble">—</td></tr>
+          <tr><td class="k">最終受信</td><td id="neu-line">—</td></tr>
+          <tr><td class="k">押下 / SPACE送信</td><td id="neu-counts">—</td></tr>
+          <tr><td class="k">予測モデル</td><td id="neu-model">—</td></tr>
+        </table>
+        <div class="row" style="margin-top:12px">
+          <button onclick="post('/api/neutsuri/esp32')">ESP32を再検出</button>
+          <button class="primary" id="neu-test" onclick="post('/api/neutsuri/test')">接続テスト（SPACE送信）</button>
+        </div>
+        <div id="neu-esp-hint" class="hint"></div>
+      </div>
+
+      <div class="neu-col prio">
+        <h2>判定の優先度（脳波利用率）</h2>
+        <div class="prio-val"><span id="neu-usage">—</span><small> % を脳波で判定</small></div>
+        <input type="range" id="sl-usage" min="0" max="100" step="1"
+               oninput="showUsage(this.value)" onchange="setUsage(this.value)">
+        <div class="split">
+          <div class="eeg" id="neu-split-eeg" style="width:0%"></div>
+          <div class="sen" id="neu-split-sen" style="width:100%"></div>
+        </div>
+        <div class="ends"><span>0% = ピエゾ実測のみ</span><span>100% = 脳波予測のみ</span></div>
+        <p class="hint">
+          0.1秒ごとの判定タイミングごとに抽選し、この割合で脳波の判定を、残りで実センサーを採用します。
+          脳波側が選ばれた回でも実際の押下は捨てずに保持するので、押した操作が消えることはありません。
+        </p>
+
+        <h2 style="margin-top:14px">予測しきい値</h2>
+        <div class="vrow">
+          <input type="range" id="sl-thresh" min="30" max="95" step="5"
+                 oninput="showThresh(this.value)" onchange="setThresh(this.value)">
+          <span id="neu-thresh" style="min-width:118px;font-size:13px">—</span>
+        </div>
+        <p class="hint">確率がこの値を上抜けた瞬間に1回発火し、下側の値まで戻るまで再発火しません（不応期 <span id="neu-refr">0.8</span> 秒）。
+          <span id="neu-thresh-reco"></span></p>
+      </div>
+
+      <div class="neu-col">
+        <h2>記録</h2>
+        <div class="neu-rec">
+          <button class="go" id="neu-start" onclick="post('/api/neutsuri/start')">記録開始</button>
+          <button class="stop" id="neu-stop" onclick="post('/api/neutsuri/stop')">記録停止</button>
+        </div>
+        <table>
+          <tr><td class="k">状態</td><td id="neu-rec-state">—</td></tr>
+          <tr><td class="k">ファイル</td><td id="neu-file">—</td></tr>
+          <tr><td class="k">サンプル数</td><td id="neu-samples">—</td></tr>
+          <tr><td class="k">現在の確率</td><td id="neu-pred">—</td></tr>
+        </table>
+        <div class="meter"><div class="fill" id="neu-pred-fill"></div><div class="mark" id="neu-pred-mark"></div></div>
+        <p class="hint">
+          CSV: <code>Timestamp, Ch1..Ch8, PiezoVoltage, Prediction, Command</code>。
+          EEG は生値µV、押下は1サンプル幅のスパイク、Command は 1=センサー / 2=脳波 で送信行に立ちます。
+        </p>
+      </div>
+
+      <div class="neu-col" style="grid-column:1/-1">
+        <h2>押下・予測トレース（EEG波形と同じ直近6秒）</h2>
+        <canvas id="neu-trace"></canvas>
+        <div class="legend">
+          <span><i style="background:#d84fd8"></i>ピエゾ押下</span>
+          <span><i style="background:#4f8dfd"></i>予測確率</span>
+          <span><i style="background:#d9a441"></i>しきい値 (high / low)</span>
+          <span><i style="background:#8a4fbf"></i>SPACE送信（センサー由来）</span>
+          <span><i style="background:#2faa55"></i>SPACE送信（脳波由来）</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="panel wide">
+    <h2>電極配置（10-20法・上から見た図）</h2>
+    <div class="urow" style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
+      <label class="mlabel">鼻根部 → 後頭結節 (cm)
+        <input type="number" id="ni" min="20" max="50" step="0.1" value="36">
+      </label>
+      <label class="mlabel">左耳介前点 → 右耳介前点 (cm)
+        <input type="number" id="lr" min="20" max="50" step="0.1" value="36">
+      </label>
+      <button class="primary" onclick="applyMontage()">再計算</button>
+      <span class="muted" id="montage-subject" style="font-size:12px"></span>
+    </div>
+    <div id="montage-wrap">
+      <div id="montage"></div>
+      <table id="montage-table" class="files"></table>
+    </div>
+    <p class="muted" style="font-size:12px;margin:10px 0 0">
+      正中の距離は 10-20 法の割合そのもの（鼻根部→Fz は 30%、電極間は 20%）。
+      Fz–F3 / Pz–P3 は古典的な定義（F3 は Fz–F7 弧の中点、P3 は Pz–T5 弧の中点）を
+      球モデル上で解いた値です。<b>Pz は装着せず、P3/P4 の目安としてのみ表示</b>しています。
+      耳朶の基準電極はケーブル色のとおり <b>左耳（A1）に白、右耳（A2）に黒</b>を貼ります。
+    </p>
+  </div>
+
+  <div class="panel wide">
+    <h2>保存データ <span id="files-count" class="muted"></span></h2>
+    <div class="row" style="margin-bottom:10px">
+      <button onclick="loadFiles()">再読み込み</button>
+      <button class="primary" id="btn-dl" onclick="downloadAll()">全ファイルをダウンロード</button>
+      <button class="stop" id="btn-del" onclick="deleteSelected()" disabled>選択を削除</button>
+    </div>
+    <div class="table-scroll">
+      <table class="files">
+        <thead>
+          <tr>
+            <th style="width:34px"><input type="checkbox" id="chk-all" onclick="toggleAll(this)"></th>
+            <th>ファイル名</th>
+            <th style="width:90px">ターゲット</th>
+            <th style="width:90px">サイズ</th>
+            <th style="width:170px">更新日時</th>
+            <th style="width:70px">timing</th>
+            <th style="width:90px"></th>
+          </tr>
+        </thead>
+        <tbody id="files-body"></tbody>
+      </table>
+    </div>
+    <p class="muted" style="font-size:12px;margin:10px 0 0">
+      削除は取り消せません。`_timing.json` と解析キャッシュも一緒に処理します。
+    </p>
+  </div>
+
+  <div class="panel wide">
+    <h2>予測モデル <span id="model-active" class="muted"></span></h2>
+
+    <div class="row" style="align-items:flex-end">
+      <button class="primary" id="btn-train" onclick="trainModel()">選択中の被験者のデータで学習</button>
+      <label class="mlabel">探索時間
+        <select id="search-duration">
+          <option value="10m">10分</option>
+          <option value="30m" selected>30分</option>
+          <option value="1h">1時間</option>
+          <option value="2h">2時間</option>
+          <option value="3h">3時間</option>
+          <option value="6h">6時間</option>
+          <option value="12h">12時間</option>
+          <option value="24h">24時間</option>
+        </select>
+      </label>
+      <button id="btn-train-search" onclick="trainModelSearch()">ハイパーパラメータ探索して学習</button>
+    </div>
+    <p id="train-status" class="hint">—</p>
+    <p class="hint">
+      学習に使う刺激セット数は上の「計測」パネルの選択値に合わせます。探索は
+      指定時間まで回してから最終モデルを学習するので、その間は記録できません。
+    </p>
+
+    <div class="table-scroll">
+      <table class="files">
+        <thead>
+          <tr>
+            <th>名前（被験者）</th>
+            <th style="width:110px">学習データ</th>
+            <th style="width:70px">レート</th>
+            <th style="width:60px">セット</th>
+            <th style="width:70px">本数</th>
+            <th style="width:80px">LOOCV</th>
+            <th style="width:80px">model.py</th>
+            <th style="width:140px">更新</th>
+            <th>メモ</th>
+            <th style="width:70px"></th>
+          </tr>
+        </thead>
+        <tbody id="models-body"></tbody>
+      </table>
+    </div>
+
+    <form id="model-form" class="upload" onsubmit="uploadModel(event)">
+      <div class="urow">
+        <label>被験者名<input name="name" placeholder="例: sub01" required></label>
+        <label>メモ<input name="note" placeholder="任意"></label>
+      </div>
+      <div class="urow">
+        <label>svm_model.pkl<input type="file" name="pkl" accept=".pkl"></label>
+        <label>model.py（前処理も変える場合のみ）<input type="file" name="py" accept=".py"></label>
+        <button class="primary" type="submit">アップロード</button>
+      </div>
+    </form>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">
+      使用中のモデルは常に「選択中の被験者のモデル」です（切り替えは被験者パネルで行います）。
+      アップロードは他所で学習したモデルを取り込むときだけ使ってください（被験者名と同じ名前で上げます）。
+      予測ありの記録では、使ったモデル名を <code>_predict.json</code> に残します。
+      <b>レート</b>はそのモデルを学習したデータのサンプリングレートです。今のアンプと違う
+      モデルで予測すると結果は信用できません。
+    </p>
+  </div>
+
+</div>
+
+<script>
+const CH_COLORS = ['#9aa0aa','#a86ede','#4f8dfd','#3fbf6f','#d8cf4a','#e08a3c','#d95757','#a4744a'];
+let uiTarget = null;
+let displayPaused = false;
+let wasRunning = false;
+let clockNote = '';               // 直近の時刻合わせの結果（状態表に出す）
+
+function post(path) {
+  return fetch(path, {method:'POST'}).then(r => r.json())
+    .then(d => { if (d.message) document.getElementById('status').textContent = d.message; return d; })
+    .catch(e => { document.getElementById('status').textContent = 'error: ' + e; });
+}
+function play(key) { post('/api/play/' + key); }
+
+// 刺激セット数。set_num < 10 のときはサーバが末尾に1セット足す（main.py と同じ仕様）ので、
+// 実際に鳴る刺激数がひと目で分かるように併記する。
+function setNum() { return +document.getElementById('setnum').value; }
+function onSetNum() {
+  const n = setNum(), sets = n < 10 ? n + 1 : n;
+  document.getElementById('setnum-info').textContent =
+    `→ ${sets} セット / ${sets * 4} 刺激` + (n < 10 ? '（末尾に1セット追加）' : '');
+  localStorage.setItem('bci_setnum', n);
+}
+function start(mode) { post('/api/start/' + mode + '?set_num=' + setNum()); }
+
+// --- 音量 ---
+// ドラッグ中はサーバ値でスライダーを上書きしない
+let volDirty = {stim:0, device:0};
+const SLIDER = {stim:'sl-stim', device:'sl-dev'};
+const READOUT = {stim:'v-stim', device:'v-dev'};
+
+function setVol(kind, value) {
+  volDirty[kind] = Date.now();
+  post('/api/volume/' + kind + '?value=' + value);
+}
+function bumpVol(kind, delta) {
+  const sl = document.getElementById(SLIDER[kind]);
+  const v = Math.max(0, Math.min(100, (+sl.value) + delta));
+  sl.value = v;
+  document.getElementById(READOUT[kind]).textContent = v + '%';
+  setVol(kind, v);
+}
+function syncVol(kind, value, enabled) {
+  const sl = document.getElementById(SLIDER[kind]);
+  sl.disabled = !enabled;
+  if (kind === 'device') {
+    ['dev-minus', 'dev-plus'].forEach(id => document.getElementById(id).disabled = !enabled);
+  }
+  if (value === null || value === undefined) {
+    // 「利用不可」だけだと理由が分からないので、何が起きているかを書く
+    document.getElementById(READOUT[kind]).textContent = '調整できません';
+    return;
+  }
+  if (Date.now() - volDirty[kind] < 1500) return;   // 直近の操作を尊重する
+  sl.value = value;
+  document.getElementById(READOUT[kind]).textContent = value + '%';
+}
+
+// USBオーディオを掴めているかを、状態・音量・計測パネルの3か所に反映する
+function syncAudio(d) {
+  const ok = d.audio_is_usb;
+  document.getElementById('s-audio').innerHTML =
+    '<span class="dot ' + (ok ? 'ok' : 'ng') + '"></span>' + esc(d.audio_device || '—') +
+    (ok ? '' : '（USBオーディオ未接続）');
+
+  document.getElementById('dev-hint').className = 'hint' + (ok ? '' : ' alert');
+  document.getElementById('dev-hint').textContent = ok
+    ? 'USBオーディオ本体の音量。刺激音量と掛け合わせで出力レベルが決まります。'
+    : 'USBオーディオ (' + esc(d.audio_expected) + ') が見つからないため、'
+      + 'ALSAの音量つまみを辿れません。刺激音量（ソフトウェア）だけが効きます。';
+
+  const warn = document.getElementById('audio-warn');
+  warn.style.display = ok ? 'none' : 'block';
+  if (!ok) {
+    warn.innerHTML = '<b>⚠ USBオーディオが未接続です。</b>' +
+      '刺激は内蔵出力（' + esc(d.audio_device) + '）から鳴ります。' +
+      'このまま記録すると提示レベルと遅延が普段と変わります。' +
+      'USBオーディオI/Fを挿してから ' +
+      '<button class="primary" style="padding:4px 10px;font-size:12px" ' +
+      'onclick="post(\'/api/reconnect\')">USB機器を再検出</button> を押してください。';
+  }
+}
+
+// --- 状態ポーリング ---
+function refresh() {
+  fetch('/api/state').then(r => r.json()).then(d => {
+    document.getElementById('s-conn').innerHTML =
+      '<span class="dot ' + (d.connected ? 'ok' : 'ng') + '"></span>' +
+      esc(d.device_label || '') + (d.connected ? ' / ' + esc(String(d.port)) : ' — ' + esc(d.error || '未接続'));
+    // 実測レート（rate）と機種の公称レート（sampling_rate）を並べる。
+    // 取りこぼしがあると実測だけが下がるので、その場で気づけるようにする。
+    document.getElementById('s-rate').textContent =
+      d.rate + ' Hz / 公称 ' + d.sampling_rate + ' Hz'
+      + (d.ext_channels && d.ext_channels.length ? '（' + d.ext_channels.join('/') + ' 同時記録）' : '');
+    document.getElementById('s-subject').textContent = d.current_subject || '（未選択）';
+    document.getElementById('h1-device').textContent = d.device_label || '';
+    syncDeviceUi(d);
+    syncAudio(d);
+    document.getElementById('s-target').textContent = d.target_label;
+    document.getElementById('s-pred').textContent = d.prediction_label || '—';
+    document.getElementById('s-file').textContent = d.last_file || '—';
+    syncClockView(d.clock);
+    document.getElementById('status').textContent = d.message || '—';
+
+    if (uiTarget !== d.target) {
+      uiTarget = d.target;
+      ['1','2','3'].forEach(k =>
+        document.getElementById('t' + k).classList.toggle('on', k === d.target));
+    }
+
+    let total = 0;
+    ['1','2','3'].forEach(k => {
+      const n = (d.counts && d.counts[k]) || 0;
+      total += n;
+      document.getElementById('c' + k).textContent = n;
+    });
+    document.getElementById('c-total').textContent = total;
+
+    const pct = d.total ? (100 * d.progress / d.total) : 0;
+    document.getElementById('prog').style.width = pct + '%';
+
+    syncVol('stim', d.stim_volume, true);
+    syncVol('device', d.device_volume, d.device_volume_available);
+    if (d.neutsuri) syncNeu(d.neutsuri, d);
+    syncNeuSupport(d);
+    syncTraining(d);
+
+    if (wasRunning && !d.running) {              // 記録が終わったら一覧とERPを更新
+      loadFiles();
+      loadErp();
+    }
+    wasRunning = d.running;
+
+    // Ne-utsuri が記録中は同じ Cyton を取り合うので、聴覚BCI側は押せないようにする
+    const busy = d.running || d.impedance_running || d.training_running
+                 || !!(d.neutsuri && d.neutsuri.recording);
+    // 被験者が決まっていないと保存先もモデルも決まらないので押せないようにする
+    ['btn-record','btn-predict'].forEach(id =>
+      document.getElementById(id).disabled = busy || !d.connected || !d.current_subject);
+    document.getElementById('btn-abort').disabled = !d.running;
+
+    // 記録中はサーバが波形とチャンネル統計の更新を止める。止まっていることを
+    // 明示しないと不具合と区別できないので、はっきり出す。
+    displayPaused = !!d.display_paused;
+    document.getElementById('eeg-wrap').classList.toggle('paused', displayPaused);
+    const es = document.getElementById('eeg-state');
+    es.textContent = displayPaused ? '— 停止中（記録優先）' : '';
+    es.classList.toggle('paused', displayPaused);
+
+    const imp = document.getElementById('imp');
+    if (imp.children.length !== d.impedance.length) {
+      // チャンネル名は電極ケーブルの色で出す（波形と同じ配色）
+      imp.innerHTML = d.impedance.map((_, i) =>
+        '<div class="imp-cell" id="imp' + i + '" onclick="post(\'/api/impedance?ch=' + (i+1) +
+        '\')"><div class="ch" style="color:' + CH_COLORS[i % CH_COLORS.length] + '">Ch' +
+        (i+1) + '</div><div class="v">—</div><div class="rms">—</div></div>').join('');
+    }
+    // 計測が失敗したときは "ERR" が並ぶだけで理由が分からない。原因を出す。
+    const impErr = document.getElementById('imp-error');
+    impErr.style.display = d.impedance_error ? 'block' : 'none';
+    impErr.textContent = d.impedance_error || '';
+
+    d.impedance.forEach((v, i) => {
+      const cell = document.getElementById('imp' + i);
+      cell.querySelector('.v').textContent = v;
+      const sig = d.signal[i];
+      cell.querySelector('.rms').textContent =
+        displayPaused ? '停止中' : (sig ? sig.rms + ' µV' : '—');
+      cell.classList.toggle('active', d.impedance_channel === i + 1);
+      cell.classList.toggle('railed', !!(sig && sig.railed));
+    });
+  }).catch(() => {});
+}
+(function initSetNum() {
+  const saved = localStorage.getItem('bci_setnum');
+  if (saved && +saved >= 1 && +saved <= 10) document.getElementById('setnum').value = saved;
+  onSetNum();
+})();
+
+setInterval(refresh, 500);
+refresh();
+
+// --- Pi の時計合わせ ---
+// Pi には RTC が無く、電源を切ると時計が止まる。直結LANだとネットにも出られず
+// NTP が効かないので、この画面を開いている PC の時計を送って合わせてもらう。
+// 記録中は見送られる（時計を飛ばすと Timestamp と刺激時刻が食い違うため）ので、
+// 定期的に送り直す。
+function syncClock() {
+  fetch('/api/time', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                      body: JSON.stringify({epoch: Date.now() / 1000})})
+    .then(r => r.json()).then(d => {
+      clockNote = d.changed ? d.message : (d.ok ? '' : d.message);
+      if (d.changed) loadFiles();      // ファイル一覧の日時表示が変わる
+    }).catch(() => {});
+}
+syncClock();
+setInterval(syncClock, 60000);
+
+function syncClockView(clock) {
+  const el = document.getElementById('s-clock');
+  if (!clock || !clock.epoch) { el.textContent = '—'; return; }
+  const drift = clock.epoch * 1000 - Date.now();
+  const shown = new Date(clock.epoch * 1000).toLocaleString('ja-JP', {hour12: false});
+  let note;
+  if (Math.abs(drift) <= 5000) note = 'PCと一致';
+  else if (Math.abs(drift) < 90000) note = 'PCと' + (drift / 1000).toFixed(0) + '秒ずれ';
+  else note = 'PCと' + (drift / 86400000).toFixed(1) + '日ずれ';
+  el.textContent = shown + '（' + note + (clockNote ? ' / ' + clockNote : '') + '）';
+}
+
+// --- 電極配置（10-20法）---
+// Cz を北極とする単位球で position を持ち、鼻根部-後頭結節(NI)と左右耳介前点間(LR)の
+// 実測値で cm に落とす。球の四分弧を方向ごとに楕円補間するので、正中・冠状の距離は
+// 10-20 法の割合（30% / 20%）にちょうど一致する。
+const RAD = Math.PI / 180;
+
+function sph(thetaDeg, phiDeg) {           // +y=前, -x=左, +z=上
+  const t = thetaDeg * RAD, p = phiDeg * RAD;
+  return [-Math.sin(t) * Math.sin(p), Math.sin(t) * Math.cos(p), Math.cos(t)];
+}
+function norm(v) { const n = Math.hypot(v[0], v[1], v[2]); return v.map(c => c / n); }
+function dot(a, b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+function theta(v) { return Math.acos(Math.min(1, Math.max(-1, v[2]))) / RAD; }
+function azim(v)  { return Math.atan2(-v[0], v[1]) / RAD; }
+function arcMid(a, b) { return norm([a[0]+b[0], a[1]+b[1], a[2]+b[2]]); }
+
+// 定義通りの基準点。円周線は Cz から 72°（Fpz が NI の10% ＝ 18° 上）。
+const P_Fz = sph(36, 0), P_Cz = sph(0, 0), P_Pz = sph(36, 180);
+const P_C3 = sph(36, 90), P_C4 = sph(36, -90);
+const P_F7 = sph(72, 54), P_F8 = sph(72, -54);      // 円周の 15%
+const P_T5 = sph(72, 126), P_T6 = sph(72, -126);    // 円周の 35%
+const P_F3 = arcMid(P_Fz, P_F7), P_F4 = arcMid(P_Fz, P_F8);
+const P_P3 = arcMid(P_Pz, P_T5), P_P4 = arcMid(P_Pz, P_T6);
+const P_NAS = sph(90, 0), P_INI = sph(90, 180);
+
+// Ch1〜Ch8 の装着部位。Pz は装着せず P3/P4 の目安としてのみ描く。
+const MONTAGE = [
+  {ch: 1, name: 'F3', p: P_F3}, {ch: 2, name: 'Fz', p: P_Fz}, {ch: 3, name: 'F4', p: P_F4},
+  {ch: 4, name: 'C3', p: P_C3}, {ch: 5, name: 'Cz', p: P_Cz}, {ch: 6, name: 'C4', p: P_C4},
+  {ch: 7, name: 'P3', p: P_P3}, {ch: 8, name: 'P4', p: P_P4},
+];
+
+// 耳朶に貼る基準電極。ケーブル色そのままで、左が白・右が黒。
+const EAR_REFS = [
+  {side: -1, name: 'A1', label: '左耳', cable: '白', color: '#f2f4f7', ink: '#15171c'},
+  {side:  1, name: 'A2', label: '右耳', cable: '黒', color: '#0d0f13', ink: '#e6e8ec'},
+];
+
+function quarterArc(phiDeg, NI, LR) {      // その方位の Cz→周縁の弧長
+  const p = phiDeg * RAD;
+  return Math.hypot(NI / 2 * Math.cos(p), LR / 2 * Math.sin(p));
+}
+function scalpDist(a, b, NI, LR) {         // 頭皮上（メジャーで測る）距離
+  const ang = Math.acos(Math.min(1, Math.max(-1, dot(a, b))));
+  const pa = theta(a) > 1e-9 ? azim(a) : azim(b);
+  const pb = theta(b) > 1e-9 ? azim(b) : azim(a);
+  return ang * 2 * quarterArc((pa + pb) / 2, NI, LR) / Math.PI;
+}
+function project(v, NI, LR) {              // 上から見た図（Czからの距離を保つ投影）
+  const ph = azim(v), r = theta(v) / 90 * quarterArc(ph, NI, LR);
+  return {x: -r * Math.sin(ph * RAD), y: r * Math.cos(ph * RAD)};
+}
+
+function drawMontage() {
+  const NI = parseFloat(document.getElementById('ni').value);
+  const LR = parseFloat(document.getElementById('lr').value);
+  if (!(NI > 0) || !(LR > 0)) return;
+
+  // 図の単位は cm。余白は鼻・耳・ランドマーク名のぶんだけ取る。
+  const M = 8.8, rx = LR / 2, ry = NI / 2;
+  const W = 2 * rx + 2 * M, H = 2 * ry + 2 * M;
+  const X = cm => cm + W / 2, Y = cm => H / 2 - cm;       // cm → SVG 座標（y反転）
+  const R_E = 1.9;                                        // 電極マークの半径 [cm]
+  const S = [];
+  const t = (x, y, s, o = {}) => S.push(
+    `<text x="${x}" y="${y}" fill="${o.fill || '#e6e8ec'}" font-size="${o.size || 1.5}"` +
+    ` text-anchor="middle" font-weight="${o.weight || 400}"` +
+    ` font-family="-apple-system,sans-serif">${s}</text>`);
+
+  // 頭部・鼻・耳
+  S.push(`<ellipse cx="${X(0)}" cy="${Y(0)}" rx="${rx}" ry="${ry}" fill="#12141a" stroke="#4a5262" stroke-width="0.3"/>`);
+  S.push(`<path d="M ${X(-1.6)} ${Y(ry - 0.3)} L ${X(0)} ${Y(ry + 2.2)} L ${X(1.6)} ${Y(ry - 0.3)} Z" fill="#12141a" stroke="#4a5262" stroke-width="0.3"/>`);
+  for (const s of [-1, 1]) {
+    S.push(`<path d="M ${X(s * (rx - 0.2))} ${Y(2.3)} q ${s * 2.9} 0 ${s * 2.9} 2.3 q 0 2.3 ${-s * 2.9} 2.3" fill="none" stroke="#4a5262" stroke-width="0.3"/>`);
+  }
+  // 正中線・冠状線
+  S.push(`<line x1="${X(0)}" y1="${Y(ry)}" x2="${X(0)}" y2="${Y(-ry)}" stroke="#2c313b" stroke-width="0.2" stroke-dasharray="0.8 0.8"/>`);
+  S.push(`<line x1="${X(-rx)}" y1="${Y(0)}" x2="${X(rx)}" y2="${Y(0)}" stroke="#2c313b" stroke-width="0.2" stroke-dasharray="0.8 0.8"/>`);
+  t(X(0), Y(ry + 3.6), '鼻根部 Nasion', {fill: '#8b93a3', size: 1.6});
+  t(X(0), Y(-ry - 2.4), '後頭結節 Inion', {fill: '#8b93a3', size: 1.6});
+  t(X(-rx - 5), Y(-0.6), '左耳介', {fill: '#8b93a3', size: 1.6});
+  t(X(rx + 5), Y(-0.6), '右耳介', {fill: '#8b93a3', size: 1.6});
+
+  // 距離の注記。ラベルは電極に被らないよう cm 単位でずらす。
+  const ann = (a, b, ox, oy) => {
+    const A = project(a, NI, LR), B = project(b, NI, LR);
+    const d = scalpDist(a, b, NI, LR);
+    S.push(`<line x1="${X(A.x)}" y1="${Y(A.y)}" x2="${X(B.x)}" y2="${Y(B.y)}" stroke="#d9a441" stroke-width="0.22"/>`);
+    t(X((A.x + B.x) / 2 + ox), Y((A.y + B.y) / 2 + oy) + 0.6, d.toFixed(1),
+      {fill: '#d9a441', size: 1.7, weight: 700});
+  };
+  ann(P_NAS, P_Fz, 1.7, 0);      // 正中は右へ逃がす
+  ann(P_Fz, P_Cz, 1.7, 0);
+  ann(P_Cz, P_Pz, 1.7, 0);
+  ann(P_Cz, P_C3, 0, -2.7);      // 冠状は下へ
+  ann(P_Fz, P_F3, 0.6, 2.7);     // 斜めは外側へ
+  ann(P_Pz, P_P3, -0.8, -3.4);
+
+  // Pz は装着しない（P3/P4 の目安）
+  const pz = project(P_Pz, NI, LR);
+  S.push(`<circle cx="${X(pz.x)}" cy="${Y(pz.y)}" r="${R_E}" fill="none" stroke="#8b93a3" stroke-width="0.3" stroke-dasharray="0.7 0.5"/>`);
+  t(X(pz.x), Y(pz.y) + 0.5, 'Pz', {fill: '#8b93a3', size: 1.45, weight: 700});
+  t(X(pz.x), Y(pz.y) + R_E + 1.5, '参考', {fill: '#8b93a3', size: 1.2});
+
+  // 耳朶の基準電極。耳の輪郭の内側に収まるよう頭部電極より小さく描く。
+  const R_A = 1.2;
+  EAR_REFS.forEach(a => {
+    const cx = X(a.side * (rx + 1)), cy = Y(0);
+    S.push(`<circle cx="${cx}" cy="${cy}" r="${R_A}" fill="${a.color}" stroke="#4a5262" stroke-width="0.3"/>`);
+    t(cx, cy + 0.45, a.name, {fill: a.ink, size: 1.3, weight: 700});
+    t(cx, cy + R_A + 2.4, a.cable, {fill: '#8b93a3', size: 1.3});
+  });
+
+  // 電極（名前と Ch 番号は円の中に2段。円からはみ出ないよう内側に寄せる）
+  const rows = [];
+  MONTAGE.forEach(e => {
+    const q = project(e.p, NI, LR), c = CH_COLORS[e.ch - 1];
+    S.push(`<circle cx="${X(q.x)}" cy="${Y(q.y)}" r="${R_E}" fill="${c}" stroke="#15171c" stroke-width="0.3"/>`);
+    t(X(q.x), Y(q.y) - 0.5, 'Ch' + e.ch, {fill: '#15171c', size: 1.1, weight: 700});
+    t(X(q.x), Y(q.y) + 1.15, e.name, {fill: '#15171c', size: 1.45, weight: 700});
+    rows.push(`<tr><td class="sw"><span class="chip" style="background:${c}"></span></td>` +
+      `<td>Ch${e.ch}</td><td class="name">${e.name}</td>` +
+      `<td>${scalpDist(P_NAS, e.p, NI, LR).toFixed(1)} cm</td></tr>`);
+  });
+
+  EAR_REFS.forEach(a => {
+    rows.push(`<tr><td class="sw"><span class="chip" style="background:${a.color}"></span></td>` +
+      `<td>${a.name}</td><td class="name">${a.label}（基準・${a.cable}）</td><td>—</td></tr>`);
+  });
+
+  document.getElementById('montage').innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${S.join('')}</svg>`;
+  document.getElementById('montage-table').innerHTML =
+    '<thead><tr><th colspan="3">電極</th><th>鼻根部から</th></tr></thead><tbody>' +
+    rows.join('') + '</tbody>';
+}
+
+// 頭のかたちは被験者ごとに違うので、入力値はサーバの被験者設定に持たせる。
+// 被験者を選び直したときと再読み込み後は、その被験者の値を入れ直して描く。
+function loadMontage() {
+  return fetch('/api/subjects/head').then(r => r.json()).then(d => {
+    const h = d.head || {};
+    if (h.ni > 0) document.getElementById('ni').value = h.ni;
+    if (h.lr > 0) document.getElementById('lr').value = h.lr;
+    document.getElementById('montage-subject').textContent =
+      d.subject ? '被験者: ' + d.subject : '被験者未選択（次に選んだ被験者の初期値になります）';
+    drawMontage();
+  }).catch(() => drawMontage());
+}
+
+function applyMontage() {
+  const ni = parseFloat(document.getElementById('ni').value);
+  const lr = parseFloat(document.getElementById('lr').value);
+  drawMontage();
+  if (!(ni > 0) || !(lr > 0)) return;
+  fetch('/api/subjects/head?ni=' + ni + '&lr=' + lr, {method: 'POST'}).catch(() => {});
+}
+
+(function initMontage() {
+  ['ni', 'lr'].forEach(id =>
+    document.getElementById(id).addEventListener('change', applyMontage));
+  loadMontage();
+})();
+
+// --- 予測モデル ---
+// --- EEG アンプ ---
+// 機種ごとにレートも補助チャンネルも違うので、選択は接続前にしかできない。
+let deviceRows = [];
+function loadDevices() {
+  return fetch('/api/devices').then(r => r.json()).then(d => {
+    deviceRows = d.devices || [];
+    const sel = document.getElementById('device-select');
+    sel.innerHTML = deviceRows.map(x =>
+      '<option value="' + esc(x.name) + '"' + (x.name === d.current ? ' selected' : '') +
+      (x.available ? '' : ' data-unavailable="1"') + '>' + esc(x.label) +
+      '（' + x.sampling_rate + ' Hz' + (x.n_ext ? ' + EXT' + x.n_ext + 'ch' : '') + '）' +
+      (x.available ? '' : ' — 使用不可') + '</option>').join('');
+    return d;
+  }).catch(() => {});
+}
+function selectDevice(name) {
+  fetch('/api/device/select?name=' + encodeURIComponent(name), {method:'POST'})
+    .then(r => r.json()).then(d => {
+      document.getElementById('status').textContent = d.message;
+      loadDevices();
+    }).catch(e => { document.getElementById('status').textContent = 'error: ' + e; });
+}
+function connectDevice() {
+  const port = document.getElementById('device-port').value.trim();
+  document.getElementById('status').textContent = '接続中…';
+  post('/api/connect' + (port ? '?port=' + encodeURIComponent(port) : '')).then(loadDevices);
+}
+// COMポート欄は指定が必要な機種（Polymate）のときだけ出す。Cyton は
+// FTDIドングルを自動で見つけるので、欄を出しても迷わせるだけ。
+function syncDeviceUi(d) {
+  document.getElementById('port-row').style.display = d.device_needs_port ? 'flex' : 'none';
+  if (d.connected && d.port && !document.getElementById('device-port').value) {
+    document.getElementById('device-port').value = d.port;
+  }
+  const sel = document.getElementById('device-select');
+  if (sel.value && sel.value !== d.device) sel.value = d.device;
+  sel.disabled = d.connected || d.running || d.impedance_running;
+  document.getElementById('btn-connect').disabled = d.running || d.impedance_running;
+  document.getElementById('btn-disconnect').disabled = !d.connected || d.running;
+
+  const row = deviceRows.find(x => x.name === d.device);
+  const hint = document.getElementById('device-hint');
+  if (row && !row.available) {
+    hint.className = 'hint alert';
+    hint.textContent = row.reason;
+  } else {
+    hint.className = 'hint';
+    hint.textContent = d.device_needs_port
+      ? 'COM番号を空欄にすると、見えているポートを順に試して繋がったものを使います。'
+      : 'FTDIドングルを自動で探します。ポートの指定は不要です。';
+  }
+}
+
+// Ne-utsuri は 250 Hz 学習の押下判定モデルを使うので Cyton 専用。
+// 他の機種のときはパネルごと使えないことを明示する。
+function syncNeuSupport(d) {
+  const panel = document.getElementById('neu-panel');
+  if (!panel) return;
+  const note = document.getElementById('neu-unsupported');
+  if (note) {
+    note.style.display = d.neutsuri_supported ? 'none' : 'block';
+    note.textContent = d.neutsuri_supported ? '' :
+      '押下判定モデルが 250 Hz・2秒窓で学習されているため、'
+      + esc(d.device_label || '') + '（' + d.sampling_rate + ' Hz）では使えません。'
+      + 'Cyton に切り替えてください。';
+  }
+  // 非対応の機種では ON にできないようにする（記録開始・テストも塞ぐ）。
+  // syncNeu が付けた disabled を外してしまわないよう、ここでは付けるだけにする。
+  document.getElementById('neu-on').disabled = !d.neutsuri_supported;
+  if (!d.neutsuri_supported) {
+    ['neu-start','neu-test'].forEach(id => document.getElementById(id).disabled = true);
+  }
+}
+
+// --- 被験者 ---
+function loadSubjects() {
+  return fetch('/api/subjects').then(r => r.json()).then(d => {
+    const sel = document.getElementById('subject-select');
+    const subs = d.subjects || [];
+    sel.innerHTML = subs.length
+      ? subs.map(x => '<option value="' + esc(x) + '"' +
+          (x === d.current ? ' selected' : '') + '>' + esc(x) + '</option>').join('')
+      : '<option value="">（被験者未登録）</option>';
+  }).catch(() => {});
+}
+function onSubjectSelect(name) { if (name) selectSubject(name); }
+function addSubject() {
+  const inp = document.getElementById('subject-new');
+  const name = inp.value.trim();
+  if (!name) { document.getElementById('status').textContent = '被験者名を入力してください'; return; }
+  selectSubject(name);
+  inp.value = '';
+}
+function selectSubject(name) {
+  fetch('/api/subjects/select?name=' + encodeURIComponent(name), {method:'POST'})
+    .then(r => r.json()).then(d => {
+      document.getElementById('status').textContent = d.message;
+      // 被験者を替えるとデータ・モデル・ERP・音量がすべて別物になる
+      if (d.ok) { loadSubjects(); loadFiles(); loadModels(); loadErp(); loadMontage(); }
+    }).catch(e => { document.getElementById('status').textContent = 'error: ' + e; });
+}
+
+// --- 学習 ---
+// 学習に使う刺激セット数は「計測」パネルの選択値に合わせる（set_num < 10 のとき
+// サーバが末尾に1セット足すので、実際に鳴った数と同じになるよう +1 する）。
+let wasTraining = false;
+function trainSetCount() { const n = setNum(); return n < 10 ? n + 1 : n; }
+function postTrain(path, body, btnId) {
+  const btn = document.getElementById(btnId);
+  btn.disabled = true;
+  document.getElementById('train-status').textContent = '開始しています…';
+  fetch(path, {method:'POST', headers:{'Content-Type':'application/json'},
+               body: JSON.stringify(body)})
+    .then(r => r.json()).then(d => {
+      document.getElementById('status').textContent = d.message;
+      if (!d.ok) {
+        btn.disabled = false;
+        document.getElementById('train-status').textContent = d.message;
+      }
+    }).catch(e => {
+      btn.disabled = false;
+      document.getElementById('train-status').textContent = 'error: ' + e;
+    });
+}
+function trainModel() {
+  postTrain('/api/train', {use_sequence: trainSetCount()}, 'btn-train');
+}
+function trainModelSearch() {
+  const duration = document.getElementById('search-duration').value;
+  if (!confirm(`最大 ${duration} かけてハイパーパラメータを探索します。`
+             + `その間このアンプでは記録できません。続けますか？`)) return;
+  postTrain('/api/train_search', {duration, use_sequence: trainSetCount()}, 'btn-train-search');
+}
+function syncTraining(d) {
+  document.getElementById('train-status').textContent = d.training_message || '—';
+  const blocked = d.training_running || d.running || !d.current_subject;
+  document.getElementById('btn-train').disabled = blocked;
+  document.getElementById('btn-train-search').disabled = blocked;
+  if (wasTraining && !d.training_running) loadModels();   // 学習が終わったら一覧を更新
+  wasTraining = d.training_running;
+}
+
+function loadModels() {
+  fetch('/api/models').then(r => r.json()).then(d => {
+    const activeRow = d.models.find(m => m.name === d.active);
+    document.getElementById('model-active').textContent = d.active
+      ? '使用中: ' + d.active + (activeRow && activeRow.has_pkl
+          ? '（' + (activeRow.mtime || '') + '）' : '（未学習）')
+      : '（被験者未選択）';
+    const body = document.getElementById('models-body');
+    if (!d.models.length) {
+      body.innerHTML = '<tr><td colspan="10" class="empty">モデルがありません</td></tr>';
+      return;
+    }
+    body.innerHTML = d.models.map(m => {
+      const n = esc(m.name), on = m.name === d.active;
+      const acc = (m.loocv_acc === null || m.loocv_acc === undefined)
+                  ? '—' : (m.loocv_acc * 100).toFixed(1) + '%';
+      return '<tr class="' + (on ? 'active' : '') + '">' +
+        '<td class="name">' + n + (on ? ' <span class="muted">（選択中の被験者）</span>' : '') +
+          (m.error ? ' <span style="color:var(--red)">⚠</span>' : '') + '</td>' +
+        '<td>' + esc(m.trained_on || '—') + '</td>' +
+        '<td>' + (m.sampling_rate ? m.sampling_rate + ' Hz' : '—') + '</td>' +
+        '<td>' + (m.use_sequence || '—') + '</td>' +
+        '<td>' + (m.n_files || '—') + '</td>' +
+        '<td>' + acc + '</td>' +
+        '<td>' + (m.own_model_py ? '独自' : '同梱') + '</td>' +
+        '<td>' + esc(m.mtime || '—') + '</td>' +
+        '<td class="note">' + esc(m.error || m.note || '') + '</td>' +
+        '<td>' + (on ? '' :
+          '<button onclick="deleteModel(\'' + n + '\')">削除</button>') + '</td>' +
+      '</tr>';
+    }).join('');
+  }).catch(() => {});
+}
+function deleteModel(name) {
+  if (!confirm(`モデル "${name}" を削除します。取り消せません。`)) return;
+  fetch('/api/models/delete?name=' + encodeURIComponent(name), {method: 'POST'})
+    .then(r => r.json()).then(d => {
+      document.getElementById('status').textContent = d.message;
+      loadModels();
+    });
+}
+function uploadModel(ev) {
+  ev.preventDefault();
+  const form = ev.target;
+  document.getElementById('status').textContent = 'アップロード中…';
+  fetch('/api/models/upload', {method: 'POST', body: new FormData(form)})
+    .then(r => r.json()).then(d => {
+      document.getElementById('status').textContent = d.message;
+      if (d.ok) form.reset();
+      loadModels();
+    })
+    .catch(e => { document.getElementById('status').textContent = 'error: ' + e; });
+}
+loadModels();
+loadSubjects();
+loadDevices();
+
+// --- 保存データ ---
+function esc(s) {
+  return s.replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function human(n) {
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB'
+       : n >= 1024    ? (n / 1024).toFixed(0) + ' KB' : n + ' B';
+}
+function selectedNames() {
+  return [...document.querySelectorAll('#files-body input[type=checkbox]:checked')]
+    .map(c => c.dataset.name);
+}
+function syncSelection() {
+  const n = selectedNames().length;
+  document.getElementById('btn-del').disabled = n === 0;
+  document.getElementById('btn-del').textContent = n ? `選択を削除 (${n})` : '選択を削除';
+  document.querySelectorAll('#files-body tr').forEach(tr => {
+    const c = tr.querySelector('input[type=checkbox]');
+    tr.classList.toggle('sel', !!(c && c.checked));
+  });
+}
+function toggleAll(box) {
+  document.querySelectorAll('#files-body input[type=checkbox]')
+    .forEach(c => { c.checked = box.checked; });
+  syncSelection();
+}
+function loadFiles() {
+  fetch('/api/files').then(r => r.json()).then(d => {
+    const body = document.getElementById('files-body');
+    const total = d.files.reduce((s, f) => s + f.size, 0);
+    document.getElementById('files-count').textContent =
+      d.files.length ? `(${d.files.length} 件 / 計 ${human(total)})` : '';
+    document.getElementById('btn-dl').disabled = !d.files.length;
+    document.getElementById('chk-all').checked = false;
+    if (!d.files.length) {
+      body.innerHTML = '<tr><td colspan="7" class="empty">記録はまだありません</td></tr>';
+      syncSelection();
+      syncErpFiles([]);
+      return;
+    }
+    body.innerHTML = d.files.map(f => {
+      const n = esc(f.name);
+      return '<tr>' +
+        '<td><input type="checkbox" data-name="' + n + '" onclick="syncSelection()"></td>' +
+        '<td class="name">' + n + '</td>' +
+        '<td>' + esc(f.target) + '</td>' +
+        '<td>' + human(f.size) + '</td>' +
+        '<td>' + esc(f.mtime) + '</td>' +
+        '<td>' + (f.timing ? '✓' : '—') + '</td>' +
+        '<td><button onclick="renameFile(\'' + n + '\')">リネーム</button></td>' +
+      '</tr>';
+    }).join('');
+    syncSelection();
+    syncErpFiles(d.files);
+  }).catch(() => {});
+}
+function downloadAll() {
+  const btn = document.getElementById('btn-dl');
+  if (btn.disabled) return;
+  // ZIP はPi側で作るので、押しっぱなしにならないよう体感的な区切りを出す
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = 'ZIP作成中…';
+  document.getElementById('status').textContent = 'ZIPを作成しています…';
+  // ダウンロードは通常のナビゲーションに任せる（ブラウザの進捗表示が使える）
+  window.location = '/api/files/download';
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = label;
+    document.getElementById('status').textContent = 'ダウンロードを開始しました';
+  }, 3000);
+}
+function renameFile(name) {
+  const next = prompt('新しいファイル名（英数字と _ - . のみ）', name);
+  if (!next || next === name) return;
+  fetch('/api/files/rename', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({old: name, new: next})
+  }).then(r => r.json()).then(d => {
+    document.getElementById('status').textContent = d.message;
+    loadFiles();
+  });
+}
+function deleteSelected() {
+  const names = selectedNames();
+  if (!names.length) return;
+  const preview = names.slice(0, 8).join('\n') + (names.length > 8 ? `\n… 他 ${names.length - 8} 件` : '');
+  if (!confirm(`${names.length} 件を完全に削除します。取り消せません。\n\n${preview}`)) return;
+  fetch('/api/files/delete', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({names})
+  }).then(r => r.json()).then(d => {
+    document.getElementById('status').textContent = d.message;
+    loadFiles();
+  });
+}
+loadFiles();
+
+// --- Ne-utsuri モード ---
+let neuOn = false, neuRec = false;
+let neuDirty = {usage: 0, thresh: 0};
+
+function neuMode(on) { post('/api/neutsuri/mode?on=' + (on ? 1 : 0)); }
+function showUsage(v) {
+  document.getElementById('neu-usage').textContent = v;
+  document.getElementById('neu-split-eeg').style.width = v + '%';
+  document.getElementById('neu-split-sen').style.width = (100 - v) + '%';
+  document.getElementById('neu-split-eeg').textContent = v >= 12 ? '脳波 ' + v + '%' : '';
+  document.getElementById('neu-split-sen').textContent =
+    (100 - v) >= 12 ? 'センサー ' + (100 - v) + '%' : '';
+}
+function setUsage(v) { neuDirty.usage = Date.now(); post('/api/neutsuri/usage?value=' + v); }
+function showThresh(v) {
+  const high = v / 100, low = Math.max(0.10, high - 0.20);
+  document.getElementById('neu-thresh').textContent =
+    high.toFixed(2) + '（下側 ' + low.toFixed(2) + '）';
+  document.getElementById('neu-pred-mark').style.left = v + '%';
+}
+function setThresh(v) {
+  neuDirty.thresh = Date.now();
+  post('/api/neutsuri/threshold?value=' + (v / 100));
+}
+function mmss(sec) {
+  const s = Math.max(0, Math.round(sec));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
+function syncNeu(n, d) {
+  const wasRec = neuRec;
+  neuOn = !!n.enabled;
+  neuRec = !!n.recording;
+  if (wasRec && !neuRec) loadFiles();      // 記録が終わったら保存データ一覧に出す
+  document.getElementById('neu-on').classList.toggle('on', neuOn);
+  document.getElementById('neu-off').classList.toggle('on', !neuOn);
+  document.getElementById('neu-body').classList.toggle('off', !neuOn);
+  document.getElementById('neu-mode-state').textContent =
+    !neuOn ? 'OFF（ESP32もシリアルを掴みません）'
+    : d.running ? 'ON — 聴覚BCIの試行中なので待機しています'
+    : neuRec ? 'ON — 記録中' : 'ON — 待機中';
+
+  const e = n.esp32 || {};
+  // 状態パネルにも1行出す（ページ先頭で接続の有無が分かるように）
+  document.getElementById('s-esp').innerHTML = !neuOn
+    ? '<span class="muted">モードOFF</span>'
+    : '<span class="dot ' + (e.connected ? 'ok' : 'ng') + '"></span>'
+      + (e.connected ? esc(e.port || '') + '（押下 ' + (e.presses || 0) + ' 回）'
+                     : 'ESP32未接続');
+  document.getElementById('neu-esp').innerHTML = !neuOn ? '—' :
+    '<span class="dot ' + (e.connected ? 'ok' : 'ng') + '"></span>' +
+    (e.connected ? esc(e.port || '') + '<span class="muted"> / ' + esc(e.description || '') + '</span>'
+                 : esc(e.error || '未接続'));
+
+  const ble = {ok: ['ok', '接続済み（SENT を受信）'],
+               ng: ['ng', '未接続（NO_BLE）— ESP32とのペアリングを確認'],
+               unknown: ['wait', '不明 — 接続テストでSPACEを1回送ると判ります']}[e.ble || 'unknown'];
+  document.getElementById('neu-ble').innerHTML =
+    (neuOn && e.connected) ? '<span class="dot ' + ble[0] + '"></span>' + ble[1] : '—';
+
+  document.getElementById('neu-line').textContent = !neuOn ? '—'
+    : e.last_line ? e.last_line + '（' + (e.last_line_age === null ? '—' : e.last_line_age + ' 秒前') + '）'
+    : e.noise ? '既知の応答なし（不明な行 ' + e.noise + ' 件）' : '—';
+  document.getElementById('neu-counts').textContent = neuOn
+    ? (e.presses || 0) + ' 回 / ' + (e.sent || 0) + ' 回'
+      + '（脳波 ' + ((n.commands && n.commands.eeg) || 0)
+      + ' / センサー ' + ((n.commands && n.commands.piezo) || 0) + '）' : '—';
+
+  document.getElementById('neu-model').innerHTML = n.model_ok
+    ? '<span class="dot ok"></span>' + esc(n.model_info || 'neutsuri_model.pkl')
+      + '<span class="muted"> / ' + (n.predict_ms || 0) + ' ms</span>'
+    : '<span class="dot ng"></span>' + esc(n.model_error || '未配置');
+  if (n.refractory_s !== undefined && n.refractory_s !== null)
+    document.getElementById('neu-refr').textContent = Number(n.refractory_s).toFixed(1);
+  // 学習時に交差検証で決めた推奨しきい値（v2 モデル）。設定値は勝手に変えず、表示だけする
+  document.getElementById('neu-thresh-reco').textContent =
+    (n.model_ok && n.model_threshold !== null && n.model_threshold !== undefined)
+      ? 'このモデルの推奨しきい値は ' + Number(n.model_threshold).toFixed(2) + ' です。' : '';
+
+  const hint = document.getElementById('neu-esp-hint');
+  if (!n.model_ok && n.usage > 0) {
+    hint.className = 'hint alert';
+    hint.textContent = '⚠ 予測モデルが無いので確率は常に0です。脳波側が選ばれた回は何も起きません'
+      + '（優先度を0%にすると全ての押下がそのまま通ります）。';
+  } else if (neuOn && !e.connected) {
+    hint.className = 'hint alert';
+    hint.textContent = '⚠ ESP32が見つかりません。USBを挿し直して「ESP32を再検出」を押してください'
+      + '（VID:PID ' + esc(e.vidpid || '10C4:EA60 / 303A:****') + ' で探しています）。';
+  } else if (neuOn && e.connected && !e.last_line && e.noise) {
+    hint.className = 'hint alert';
+    hint.textContent = '⚠ シリアルは繋がっていますが、READY / BTN のどちらも受け取れていません。'
+      + 'piezo_interface.ino 以外のスケッチが書かれている'
+      + (e.native ? '可能性があります。' : 'か、ボーレートが違う可能性があります。');
+  } else {
+    hint.className = 'hint';
+    hint.textContent = 'ESP32のファームは BTN を送り、SPACE を受けて BLE キーボードとして'
+      + 'スペースキーを出します。応答 SENT / NO_BLE でBLE側まで確認できます。'
+      + (e.native ? 'このボードはチップ内蔵USBなので接続時にリセットせず、READY は出ません。' : '');
+  }
+
+  if (Date.now() - neuDirty.usage > 1500) {
+    document.getElementById('sl-usage').value = n.usage;
+    showUsage(n.usage);
+  }
+  if (Date.now() - neuDirty.thresh > 1500) {
+    document.getElementById('sl-thresh').value = Math.round(n.threshold * 100);
+    showThresh(Math.round(n.threshold * 100));
+  }
+
+  document.getElementById('neu-rec-state').innerHTML = neuRec
+    ? '<span class="rec-on">● 記録中 ' + mmss(n.elapsed || 0) + '</span>'
+    : (n.message ? esc(n.message) : '停止中');
+  document.getElementById('neu-file').textContent = n.file || '—';
+  document.getElementById('neu-samples').textContent = neuRec || n.samples
+    ? (n.samples || 0).toLocaleString() + ' 行' : '—';
+  const p = n.eeg_fresh ? (n.prediction || 0) : null;
+  document.getElementById('neu-pred').textContent = p === null
+    ? '—（EEGが来ていません）' : p.toFixed(3);
+  document.getElementById('neu-pred-fill').style.width = ((p || 0) * 100) + '%';
+
+  document.getElementById('neu-start').disabled =
+    !neuOn || neuRec || d.running || d.impedance_running || !d.connected;
+  document.getElementById('neu-stop').disabled = !neuRec;
+  document.getElementById('neu-test').disabled = !neuOn || !e.connected;
+}
+
+// --- EEG波形 ---
+const cvs = document.getElementById('eeg');
+const ctx = cvs.getContext('2d');
+const tcv = document.getElementById('neu-trace');
+const tcx = tcv.getContext('2d');
+function fitCanvas() {
+  for (const c of [cvs, tcv]) {
+    const r = c.getBoundingClientRect();
+    c.width = r.width * devicePixelRatio;
+    c.height = r.height * devicePixelRatio;
+  }
+}
+addEventListener('resize', fitCanvas); fitCanvas();
+
+// ピエゾ押下は1サンプル幅なので、サーバ側は間引き区間の最大を返している。
+// ここでは縦線として描き、確率カーブと同じ時間軸に重ねる。
+function drawNeuTrace() {
+  if (!neuOn || displayPaused) return;
+  fetch('/api/neutsuri/trace').then(r => r.arrayBuffer().then(b => ({
+    buf: b, rows: +r.headers.get('X-Rows'), n: +r.headers.get('X-Samples')
+  }))).then(({buf, rows, n}) => {
+    const data = new Float32Array(buf);
+    if (rows < 3 || !n) return;
+    const W = tcv.width, H = tcv.height, pad = 6 * devicePixelRatio;
+    const y = v => H - pad - v * (H - 2 * pad);
+    const x = i => W * i / (n - 1);
+    tcx.clearRect(0, 0, W, H);
+
+    // しきい値
+    const high = (+document.getElementById('sl-thresh').value) / 100;
+    const low = Math.max(0.10, high - 0.20);
+    tcx.setLineDash([4 * devicePixelRatio, 4 * devicePixelRatio]);
+    tcx.lineWidth = devicePixelRatio;
+    tcx.strokeStyle = '#d9a441';
+    for (const v of [high, low]) {
+      tcx.beginPath(); tcx.moveTo(0, y(v)); tcx.lineTo(W, y(v)); tcx.stroke();
+    }
+    tcx.setLineDash([]);
+    tcx.strokeStyle = '#22262f';
+    tcx.beginPath(); tcx.moveTo(0, y(0)); tcx.lineTo(W, y(0)); tcx.stroke();
+
+    // 押下（縦線）と送信コマンド（下端のマーカー）
+    tcx.lineWidth = 2 * devicePixelRatio;
+    for (let i = 0; i < n; i++) {
+      if (data[i] > 0) {
+        tcx.strokeStyle = '#d84fd8';
+        tcx.beginPath(); tcx.moveTo(x(i), y(0)); tcx.lineTo(x(i), y(1)); tcx.stroke();
+      }
+      const c = data[2 * n + i];
+      if (c > 0) {
+        tcx.strokeStyle = c >= 2 ? '#2faa55' : '#8a4fbf';
+        tcx.beginPath();
+        tcx.moveTo(x(i), y(0)); tcx.lineTo(x(i), y(0.22));
+        tcx.stroke();
+      }
+    }
+
+    // 予測確率
+    tcx.strokeStyle = '#4f8dfd';
+    tcx.lineWidth = 1.6 * devicePixelRatio;
+    tcx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const px = x(i), py = y(data[n + i]);
+      i ? tcx.lineTo(px, py) : tcx.moveTo(px, py);
+    }
+    tcx.stroke();
+
+    tcx.fillStyle = '#8b93a3';
+    tcx.font = (11 * devicePixelRatio) + 'px sans-serif';
+    tcx.fillText('1.0', 4 * devicePixelRatio, y(1) + 11 * devicePixelRatio);
+    tcx.fillText('0.0', 4 * devicePixelRatio, y(0) - 4 * devicePixelRatio);
+  }).catch(() => {});
+}
+setInterval(drawNeuTrace, 250);
+
+function drawEeg() {
+  if (displayPaused) return;   // 記録中はサーバを叩かない
+  fetch('/api/eeg').then(r => r.arrayBuffer().then(b => ({
+    buf: b,
+    nch: +r.headers.get('X-Channels'),
+    n: +r.headers.get('X-Samples')
+  }))).then(({buf, nch, n}) => {
+    const data = new Float32Array(buf);
+    const W = cvs.width, H = cvs.height, lane = H / nch;
+    ctx.clearRect(0, 0, W, H);
+    ctx.lineWidth = 1.2 * devicePixelRatio;
+    for (let ch = 0; ch < nch; ch++) {
+      const off = ch * n;
+      let max = 1e-6;
+      for (let i = 0; i < n; i++) max = Math.max(max, Math.abs(data[off + i]));
+      const scale = (lane * 0.42) / max;
+      const mid = lane * (ch + 0.5);
+
+      ctx.strokeStyle = '#22262f';
+      ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(W, mid); ctx.stroke();
+
+      ctx.strokeStyle = CH_COLORS[ch % CH_COLORS.length];
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const x = W * i / (n - 1), y = mid - data[off + i] * scale;
+        i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      }
+      ctx.stroke();
+
+      ctx.fillStyle = '#8b93a3';
+      ctx.font = (11 * devicePixelRatio) + 'px sans-serif';
+      ctx.fillText('Ch' + (ch + 1) + '  ±' + max.toFixed(0) + ' µV', 6 * devicePixelRatio,
+                   mid - lane * 0.3);
+    }
+  }).catch(() => {});
+}
+// サーバ側は 200 ms ごとにフレームを作り直すだけなので、それ以上速く取りに
+// 行っても同じデータを受け取る。取得スレッドを邪魔しない程度に抑える。
+setInterval(drawEeg, 250);
+
+// --- 平均ERP ---
+// main.py の ERP プロット（plot_erp.py）に当たる表示。サーバは加算平均した数値だけ
+// 返し、8チャンネル分の重ね描きはここで行う。記録が終わったときだけ取りに行く。
+const ecv = document.getElementById('erp-canvas');
+const ecx = ecv.getContext('2d');
+let erpData = null;
+let erpOptsHtml = '';
+
+// 狭い画面では4列だと1枚が潰れるので2列に落とし、そのぶん背を伸ばす。
+function erpCols() { return ecv.getBoundingClientRect().width < 640 ? 2 : 4; }
+
+function fitErp() {
+  ecv.style.height = (Math.ceil(8 / erpCols()) * 178) + 'px';
+  const r = ecv.getBoundingClientRect();
+  ecv.width = r.width * devicePixelRatio;
+  ecv.height = r.height * devicePixelRatio;
+}
+addEventListener('resize', () => { fitErp(); drawErp(); });
+
+function setErpMsg(text, alert) {
+  const el = document.getElementById('erp-msg');
+  el.className = 'hint' + (alert ? ' alert' : '');
+  el.textContent = text || '';
+}
+
+// 保存データ一覧の更新に合わせて選択肢を作り直す。ユーザーが選んだ記録は、
+// まだ存在する限り選び直さない（ポーリングのたびに戻ってしまうため）。
+function syncErpFiles(files) {
+  const sel = document.getElementById('erp-file');
+  const list = files.filter(f => f.erp);
+  const html = ['<option value="">最新の記録</option>'].concat(
+    list.map(f => '<option value="' + esc(f.name) + '">' +
+                  esc(f.name) + ' — ' + esc(f.target) + '</option>')).join('');
+  if (html === erpOptsHtml) return;
+  const keep = sel.value;
+  erpOptsHtml = html;
+  sel.innerHTML = html;
+  sel.value = list.some(f => f.name === keep) ? keep : '';
+}
+
+function loadErp() {
+  const file = document.getElementById('erp-file').value;
+  setErpMsg('計算中…');
+  fetch('/api/erp' + (file ? '?file=' + encodeURIComponent(file) : ''))
+    .then(r => r.json())
+    .then(d => {
+      erpData = d.ok ? d : null;
+      setErpMsg(d.ok ? '' : (d.message || '表示できません'), !d.ok);
+      syncErpHead(erpData);
+      drawErp();
+    })
+    .catch(e => {
+      erpData = null;
+      setErpMsg('error: ' + e, true);
+      syncErpHead(null);
+      drawErp();
+    });
+}
+
+function syncErpHead(d) {
+  const sub = document.getElementById('erp-sub');
+  const leg = document.getElementById('erp-legend');
+  if (!d) { sub.textContent = ''; leg.innerHTML = ''; return; }
+  sub.textContent = d.file + ' / ターゲット ' + d.target_label + ' / '
+    + d.epochs + ' エポック' + (d.dropped ? '（窓外で除外 ' + d.dropped + '）' : '')
+    + ' / ' + d.view_label;
+  leg.innerHTML = d.series.map(s =>
+    '<span' + (s.is_target ? ' class="tgt"' : '') + '><i style="background:' + s.color + '"></i>' +
+    esc(s.name) + (s.is_target ? '（ターゲット）' : '') + ' n=' + s.n + '</span>').join('');
+}
+
+function drawErp() {
+  const W = ecv.width, H = ecv.height, dpr = devicePixelRatio;
+  ecx.clearRect(0, 0, W, H);
+  if (!erpData) return;
+
+  const d = erpData, nch = d.channels.length, cols = erpCols();
+  const rows = Math.ceil(nch / cols), cellW = W / cols, cellH = H / rows;
+  const padL = 26 * dpr, padR = 10 * dpr, padT = 20 * dpr, padB = 22 * dpr;
+  const t = d.t, n = t.length;
+
+  // 縦軸の振れ幅。既定は8チャンネル共通にして、電極間の大小をそのまま比べられるようにする。
+  const shared = document.getElementById('erp-shared').checked;
+  const peak = d.channels.map((_, c) => {
+    let m = 1e-6;
+    for (const s of d.series) {
+      for (let i = 0; i < n; i++) m = Math.max(m, Math.abs(s.mean[c][i]) + s.sem[c][i]);
+    }
+    return m;
+  });
+  const gmax = Math.max(...peak);
+
+  ecx.font = (10.5 * dpr) + 'px sans-serif';
+  ecx.textBaseline = 'middle';
+
+  for (let c = 0; c < nch; c++) {
+    const ox = (c % cols) * cellW, oy = Math.floor(c / cols) * cellH;
+    const x0 = ox + padL, x1 = ox + cellW - padR;
+    const y0 = oy + padT, y1 = oy + cellH - padB;
+    const ymax = (shared ? gmax : peak[c]) * 1.08;
+    const X = ms => x0 + (x1 - x0) * (ms - t[0]) / (t[n - 1] - t[0]);
+    const Y = v => (y0 + y1) / 2 - v * ((y1 - y0) / 2) / ymax;
+
+    ecx.strokeStyle = '#22262f';
+    ecx.lineWidth = dpr;
+    ecx.beginPath(); ecx.moveTo(x0, Y(0)); ecx.lineTo(x1, Y(0)); ecx.stroke();
+
+    ecx.strokeStyle = '#4a5262';          // 刺激オンセット
+    ecx.setLineDash([3 * dpr, 3 * dpr]);
+    ecx.beginPath(); ecx.moveTo(X(0), y0); ecx.lineTo(X(0), y1); ecx.stroke();
+    ecx.setLineDash([]);
+
+    for (const s of d.series) {
+      const mean = s.mean[c], sem = s.sem[c];
+      ecx.fillStyle = s.color;            // 平均 ± 標準誤差の帯
+      ecx.globalAlpha = 0.16;
+      ecx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const px = X(t[i]), py = Y(mean[i] + sem[i]);
+        i ? ecx.lineTo(px, py) : ecx.moveTo(px, py);
+      }
+      for (let i = n - 1; i >= 0; i--) ecx.lineTo(X(t[i]), Y(mean[i] - sem[i]));
+      ecx.closePath(); ecx.fill();
+      ecx.globalAlpha = 1;
+
+      ecx.strokeStyle = s.color;
+      ecx.lineWidth = (s.is_target ? 2.2 : 1.2) * dpr;
+      ecx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const px = X(t[i]), py = Y(mean[i]);
+        i ? ecx.lineTo(px, py) : ecx.moveTo(px, py);
+      }
+      ecx.stroke();
+    }
+
+    // 目盛りとチャンネル名（電極名は配置図と同じ MONTAGE から取る）。
+    // 振れ幅は左端に縦書きすると桁数によっては枠外へ出るので、見出しの右に振幅として出す。
+    const site = (MONTAGE[c] && MONTAGE[c].ch === c + 1) ? ' ' + MONTAGE[c].name : '';
+    ecx.fillStyle = CH_COLORS[c % CH_COLORS.length];
+    ecx.textAlign = 'left';
+    ecx.fillText(d.channels[c] + site, x0, oy + padT * 0.5);
+
+    ecx.fillStyle = '#8b93a3';
+    ecx.textAlign = 'right';
+    ecx.fillText('±' + (ymax >= 100 ? ymax.toFixed(0) : ymax.toFixed(1)) + ' µV',
+                 x1, oy + padT * 0.5);
+    ecx.fillText('0', x0 - 4 * dpr, Y(0));
+    ecx.textAlign = 'center';
+    ecx.fillText('0', X(0), y1 + 10 * dpr);
+    ecx.textAlign = 'right';
+    ecx.fillText(t[n - 1].toFixed(0) + ' ms', x1, y1 + 10 * dpr);
+  }
+  ecx.textAlign = 'left';
+  ecx.textBaseline = 'alphabetic';
+}
+
+(function initErp() {
+  fitErp();
+  loadErp();
+})();
+</script>
+</body>
+</html>

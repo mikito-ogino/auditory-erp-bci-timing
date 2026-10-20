@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+# per-subject recordings, trained models and settings written by the server
+pi_bci/data/
+pi_bci/models/
+pi_bci/cache/
+pi_bci/search/
+settings.json
+*.pkl

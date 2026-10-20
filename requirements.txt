@@ -1,0 +1,16 @@
+# Python packages used by the acquisition / presentation server (pi_bci/),
+# the bundled classifier (model.py, hyperparam_search.py) and the impedance check.
+# ftdi_latency.py needs only the system libusb-1.0 library (no Python package).
+numpy
+pandas
+scipy
+scikit-learn
+joblib
+matplotlib
+tqdm
+optuna
+flask
+sounddevice
+soundfile
+pyserial
+brainflow
